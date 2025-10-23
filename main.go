@@ -37,26 +37,21 @@ func main() {
 	lcd.FillRectangle(0, 0, width, height, color.RGBA{0, 0, 0, 255})
 	lcd.FillRectangle(width/2-10, height/2-10, 20, 20, color.RGBA{255, 255, 255, 255})
 
-	// srcBuf holds the static, pre-rendered plasma pattern
-	srcBuf := make([]color.RGBA, int(width)*int(height))
-
-	var t float32 = 0
+	var t float32 = 1
 
 	for {
-		t += 0.1
+		t += 0.05
 
-		generatePlasma(srcBuf, width, height, cx, cy, radius, t)
+		generatePlasma(lcd, width, height, cx, cy, radius, t, 8)
 
-		if err := lcd.FillRectangleWithBuffer(0, 0, width, height, srcBuf); err != nil {
-			log.Fatal(err)
-		}
+		log.Println("Frame drawn")
 	}
 }
 
-func generatePlasma(buf []color.RGBA, width, height int16, cx, cy, radius, t float32) {
+func generatePlasma(lcd gc9a01.Device, width, height int16, cx, cy, radius, t float32, resolution int16) {
 	// Define the size of the dark core (0.0 = center, 0.5 = 50% of radius)
 	// You can adjust this value.
-	const coreSize float32 = 0.1
+	const coreSize float32 = -1
 
 	// Pre-calculate 1.0 / (1.0 - coreSize) for the remapping calculation
 	// This avoids division inside the loop.
@@ -65,8 +60,8 @@ func generatePlasma(buf []color.RGBA, width, height int16, cx, cy, radius, t flo
 		remapFactor = 1.0 / (1.0 - coreSize)
 	}
 
-	for y := int16(0); y < height; y++ {
-		for x := int16(0); x < width; x++ {
+	for y := int16(0); y < height; y += resolution {
+		for x := int16(0); x < width; x += resolution {
 			dx := float32(x) - cx
 			dy := float32(y) - cy
 			dist := sqrt(dx*dx + dy*dy)
@@ -77,7 +72,7 @@ func generatePlasma(buf []color.RGBA, width, height int16, cx, cy, radius, t flo
 				c = color.RGBA{0, 0, 0, 255}
 			} else {
 				// True plasma calculation
-				angle := atan2(dy, dx)
+				const angle float32 = /* atan2(dy, dx) */ 1
 				radiusNorm := dist / radius // 0 at center, 1 at edge
 
 				// Combine multiple waves
@@ -99,7 +94,7 @@ func generatePlasma(buf []color.RGBA, width, height int16, cx, cy, radius, t flo
 				remappedNorm = clamp(remappedNorm, 0, 1)
 
 				// Use sqrt() on the remapped value for the vibrant curve
-				fade := remappedNorm * 2
+				fade := sqrt(remappedNorm) * 2.0
 				// --- END MODIFIED SECTION ---
 
 				// Map to rainbow
@@ -110,7 +105,7 @@ func generatePlasma(buf []color.RGBA, width, height int16, cx, cy, radius, t flo
 				c = color.RGBA{r, g, b, 255}
 			}
 
-			buf[int(y)*int(width)+int(x)] = c
+			lcd.FillRectangle(x, y, resolution, resolution, c)
 		}
 	}
 }

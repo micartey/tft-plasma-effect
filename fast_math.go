@@ -31,14 +31,10 @@ func sqrt(x float32) float32 {
 		return 0
 	}
 
-	// Bit-level hack for initial guess (log2 approximation)
-	// 0x3FF0000000000000 is the bit representation of 1.0
 	i := (math.Float32bits(x) + 0x3FF00000) >> 1
 	guess := math.Float32frombits(i)
 
-	// One round of Newton's method: guess = (guess + x/guess) * 0.5
 	guess = (guess + x/guess) * 0.5
-
 	return guess
 }
 
