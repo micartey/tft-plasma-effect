@@ -10,7 +10,7 @@ This effect is motivated by the apple homepod.
 > TFT Display beneath homepod cover with built in diffuser.
 
 Due to the limited cpu speed of the pi pico, the animation can currently be only described as a slide show unless the resolution is lowered considerably.
-With a resolution of `8` or heigher (heigher is a lower resolution) it becomes actually quite fast.
+With a resolution of `8` or higher (a higher value reduces resolution and makes ot _blocky_) it becomes actually quite fast.
 Using a diffuser hides the _blocky_ look and makes everything smooth.
 
 ### Flash the pico
