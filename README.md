@@ -9,9 +9,8 @@ This effect is motivated by the apple homepod.
 
 > TFT Display beneath homepod cover with built in diffuser.
 
-Due to the limited cpu speed of the pi pico, the animation can currently be only described as a slide show unless the resolution is lowered considerably.
-With a resolution of `8` or higher (a higher value reduces resolution and makes ot _blocky_) it becomes actually quite fast.
-Using a diffuser hides the _blocky_ look and makes everything smooth.
+The animation renders a reduced-resolution moving color field, expands it into larger display pixels, and streams the frame to the display in one address window.
+Increase `renderScale` in `main.go` for more speed and larger pixels, or decrease it for smoother detail.
 
 ### Flash the pico
 
@@ -23,8 +22,8 @@ tinygo flash -target=pico .
 
 ### Read tty
 
-There are hardly any logs, just when a frame finishes.
-This can be either used to check uptime and see how many fps the display is running at.
+There is no per-frame logging in the render loop.
+Serial output is intentionally avoided because it slows the animation down.
 
 ```
 tinygo monitor

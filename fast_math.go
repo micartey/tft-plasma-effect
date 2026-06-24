@@ -4,8 +4,6 @@ import (
 	"math"
 )
 
-const pi = float32(math.Pi)
-
 func sin(x float32) float32 {
 	const (
 		pi       float32 = 3.1415926535
@@ -15,7 +13,7 @@ func sin(x float32) float32 {
 	)
 
 	y := x * invTwoPi
-	y = (y - float32(math.Floor(float64(y)))) * twoPi
+	y = (y - floor(y)) * twoPi
 
 	var sign float32 = 1.0
 	if y > pi {
@@ -24,6 +22,20 @@ func sin(x float32) float32 {
 	}
 
 	return sign * c * y * (pi - y)
+}
+
+func floor(x float32) float32 {
+	i := int32(x)
+	y := float32(i)
+	if y > x {
+		return y - 1
+	}
+	return y
+}
+
+func reciprocal(x float32) float32 {
+	y := math.Float32frombits(0x7EF311C3 - math.Float32bits(x))
+	return y * (2.0 - x*y)
 }
 
 func sqrt(x float32) float32 {

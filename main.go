@@ -1,7 +1,6 @@
 package main
 
 import (
-	"image/color"
 	"log"
 	"machine"
 
@@ -13,12 +12,46 @@ const (
 	CSPIN    = machine.GPIO9
 	DCPIN    = machine.GPIO8
 	BLPIN    = machine.GPIO25
+
+	spiFrequency  = 62 * machine.MHz
+	renderScale   = 8
+	animationStep = 0.17
 )
+
+type plasmaRenderer struct {
+	width  int
+	height int
+	lowW   int
+	lowH   int
+
+	cx        float32
+	cy        float32
+	invRadius float32
+
+	grid      []uint16
+	band      []uint8
+	positions []plasmaPoint
+}
+
+type plasmaPoint struct {
+	x    float32
+	y    float32
+	mask float32
+}
+
+type colorBlob struct {
+	x float32
+	y float32
+	r float32
+	g float32
+	b float32
+	s float32
+}
 
 func main() {
 	spi := machine.SPI1
 	conf := machine.SPIConfig{
-		Frequency: 40 * machine.MHz,
+		Frequency: spiFrequency,
 	}
 	if err := spi.Configure(conf); err != nil {
 		log.Fatal(err)
@@ -29,83 +62,221 @@ func main() {
 	lcd.IsBGR(true)
 
 	width, height := lcd.Size()
+	renderer := newPlasmaRenderer(width, height)
 
-	cx, cy := float32(width)/2, float32(height)/2
-	// Corrected radius: A 240px wide display has a radius of 120px.
-	radius := float32(width)
-
-	lcd.FillRectangle(0, 0, width, height, color.RGBA{0, 0, 0, 255})
-	lcd.FillRectangle(width/2-10, height/2-10, 20, 20, color.RGBA{255, 255, 255, 255})
-
-	var t float32 = 1
-
+	var t float32
 	for {
-		t += 0.05
-
-		generatePlasma(lcd, width, height, cx, cy, radius, t, 8)
-
-		log.Println("Frame drawn")
+		t += animationStep
+		renderer.draw(&lcd, t)
 	}
 }
 
-func generatePlasma(lcd gc9a01.Device, width, height int16, cx, cy, radius, t float32, resolution int16) {
-	// Define the size of the dark core (0.0 = center, 0.5 = 50% of radius)
-	// You can adjust this value.
-	const coreSize float32 = -1
+func newPlasmaRenderer(width, height int16) *plasmaRenderer {
+	w := int(width)
+	h := int(height)
+	lowW := (w + renderScale - 1) / renderScale
+	lowH := (h + renderScale - 1) / renderScale
+	radius := float32(w)
+	if h < w {
+		radius = float32(h)
+	}
+	radius *= 0.5
 
-	// Pre-calculate 1.0 / (1.0 - coreSize) for the remapping calculation
-	// This avoids division inside the loop.
-	var remapFactor float32 = 1.0
-	if 1.0-coreSize > 0.001 { // Avoid division by zero if coreSize is 1.0
-		remapFactor = 1.0 / (1.0 - coreSize)
+	r := &plasmaRenderer{
+		width:     w,
+		height:    h,
+		lowW:      lowW,
+		lowH:      lowH,
+		cx:        float32(w-1) * 0.5,
+		cy:        float32(h-1) * 0.5,
+		invRadius: 1.0 / radius,
+		grid:      make([]uint16, lowW*lowH),
+		band:      make([]uint8, w*renderScale*2),
+		positions: make([]plasmaPoint, lowW*lowH),
 	}
 
-	for y := int16(0); y < height; y += resolution {
-		for x := int16(0); x < width; x += resolution {
-			dx := float32(x) - cx
-			dy := float32(y) - cy
-			dist := sqrt(dx*dx + dy*dy)
-
-			var c color.RGBA
-
-			if dist > radius || dist < radius*coreSize {
-				c = color.RGBA{0, 0, 0, 255}
-			} else {
-				// True plasma calculation
-				const angle float32 = /* atan2(dy, dx) */ 1
-				radiusNorm := dist / radius // 0 at center, 1 at edge
-
-				// Combine multiple waves
-				v := sin(5*radiusNorm - t)
-				v += sin(3*angle + t*1.5)
-				v += sin(4*(dx+dy)/float32(width) + t*0.7)
-
-				// Normalize to 0-1
-				vn := (v + 3) / 6
-
-				// --- MODIFIED SECTION ---
-
-				// Remap radiusNorm to account for the core size.
-				// 1. Subtract coreSize: (e.g., 0.0 -> -0.3,  0.3 -> 0.0,  1.0 -> 0.7)
-				// 2. Multiply by remapFactor: (e.g., -0.3 -> <0,  0.0 -> 0.0,  0.7 -> 1.0)
-				remappedNorm := (radiusNorm - coreSize) * remapFactor
-
-				// Clamp the result (handles the core area, maps all <0 to 0)
-				remappedNorm = clamp(remappedNorm, 0, 1)
-
-				// Use sqrt() on the remapped value for the vibrant curve
-				fade := sqrt(remappedNorm) * 2.0
-				// --- END MODIFIED SECTION ---
-
-				// Map to rainbow
-				r := uint8(clamp((sin(vn*pi*2)+1)/2*255*fade, 0, 255))
-				g := uint8(clamp((sin(vn*pi*2+2*pi/3)+1)/2*255*fade, 0, 255))
-				b := uint8(clamp((sin(vn*pi*2+4*pi/3)+1)/2*255*fade, 0, 255))
-
-				c = color.RGBA{r, g, b, 255}
+	for gy := 0; gy < lowH; gy++ {
+		sy := float32(gy*renderScale) + float32(renderScale)*0.5
+		ny := (sy - r.cy) * r.invRadius
+		for gx := 0; gx < lowW; gx++ {
+			sx := float32(gx*renderScale) + float32(renderScale)*0.5
+			nx := (sx - r.cx) * r.invRadius
+			d2 := nx*nx + ny*ny
+			mask := clamp((1.0-d2)*2.1, 0, 1)
+			mask *= 0.38 + 0.62*mask
+			r.positions[gy*lowW+gx] = plasmaPoint{
+				x:    nx,
+				y:    ny,
+				mask: mask,
 			}
-
-			lcd.FillRectangle(x, y, resolution, resolution, c)
 		}
 	}
+
+	return r
+}
+
+func (r *plasmaRenderer) draw(lcd *gc9a01.Device, t float32) {
+	r.generateField(t)
+	r.writeBands(lcd)
+}
+
+func (r *plasmaRenderer) generateField(t float32) {
+	blobs := [5]colorBlob{
+		{
+			x: 0.42 * sin(t*0.73+0.4),
+			y: 0.34 * sin(t*0.58+2.1),
+			r: 255, g: 92, b: 28, s: 6.7,
+		},
+		{
+			x: 0.38 * sin(t*0.51+2.6),
+			y: 0.46 * sin(t*0.67+0.9),
+			r: 255, g: 32, b: 114, s: 7.2,
+		},
+		{
+			x: 0.48 * sin(t*0.44+4.0),
+			y: 0.36 * sin(t*0.79+3.2),
+			r: 94, g: 70, b: 255, s: 6.4,
+		},
+		{
+			x: 0.36 * sin(t*0.69+5.7),
+			y: 0.44 * sin(t*0.47+4.4),
+			r: 28, g: 198, b: 255, s: 7.8,
+		},
+		{
+			x: 0.18 * sin(t*0.93+1.7),
+			y: 0.18 * sin(t*0.88+5.1),
+			r: 255, g: 218, b: 92, s: 11.5,
+		},
+	}
+
+	for i, p := range r.positions {
+		if p.mask <= 0 {
+			r.grid[i] = 0
+			continue
+		}
+
+		wave := 0.92 + 0.08*sin(p.x*7.0+p.y*4.0+t*1.4)
+		var red, green, blue float32
+		for _, b := range blobs {
+			dx := p.x - b.x
+			dy := p.y - b.y
+			m := reciprocal(1.0 + (dx*dx+dy*dy)*b.s)
+			m = (m*m + m*0.42) * wave
+			red += b.r * m
+			green += b.g * m
+			blue += b.b * m
+		}
+
+		glow := p.mask * 1.24
+		red, green, blue = toneMapBloom(red*glow, green*glow, blue*glow)
+		r.grid[i] = rgb565(
+			clamp(red, 0, 255),
+			clamp(green, 0, 255),
+			clamp(blue, 0, 255),
+		)
+	}
+}
+
+func (r *plasmaRenderer) writeBands(lcd *gc9a01.Device) {
+	beginRGB565(lcd, 0, 0, int16(r.width), int16(r.height))
+
+	for gy := 0; gy < r.lowH; gy++ {
+		y := gy * renderScale
+		rows := minInt(renderScale, r.height-y)
+		rowBytes := r.width * 2
+
+		out := 0
+		for gx := 0; gx < r.lowW; gx++ {
+			x := gx * renderScale
+			cols := minInt(renderScale, r.width-x)
+			c := r.grid[gy*r.lowW+gx]
+			hi := uint8(c >> 8)
+			lo := uint8(c)
+			for i := 0; i < cols; i++ {
+				r.band[out] = hi
+				r.band[out+1] = lo
+				out += 2
+			}
+		}
+
+		for row := 1; row < rows; row++ {
+			copy(r.band[row*rowBytes:(row+1)*rowBytes], r.band[:rowBytes])
+		}
+
+		sendRGB565(lcd, r.band[:rowBytes*rows])
+	}
+}
+
+func writeRGB565(lcd *gc9a01.Device, x, y, w, h int16, data []uint8) {
+	beginRGB565(lcd, x, y, w, h)
+	sendRGB565(lcd, data)
+}
+
+func beginRGB565(lcd *gc9a01.Device, x, y, w, h int16) {
+	var buf [4]uint8
+
+	lcd.Command(gc9a01.CASET)
+	buf[0] = uint8(x >> 8)
+	buf[1] = uint8(x)
+	buf[2] = uint8((x + w - 1) >> 8)
+	buf[3] = uint8(x + w - 1)
+	lcd.Tx(buf[:], false)
+
+	lcd.Command(gc9a01.RASET)
+	buf[0] = uint8(y >> 8)
+	buf[1] = uint8(y)
+	buf[2] = uint8((y + h - 1) >> 8)
+	buf[3] = uint8(y + h - 1)
+	lcd.Tx(buf[:], false)
+
+	lcd.Command(gc9a01.RAMWR)
+}
+
+func sendRGB565(lcd *gc9a01.Device, data []uint8) {
+	for len(data) > 0 {
+		n := len(data)
+		if n > 4096 {
+			n = 4096
+		}
+		lcd.Tx(data[:n], false)
+		data = data[n:]
+	}
+}
+
+func rgb565(r, g, b float32) uint16 {
+	ri := uint16(r) >> 3
+	gi := uint16(g) >> 2
+	bi := uint16(b) >> 3
+	return ri<<11 | gi<<5 | bi
+}
+
+func toneMapBloom(r, g, b float32) (float32, float32, float32) {
+	maxc := r
+	if g > maxc {
+		maxc = g
+	}
+	if b > maxc {
+		maxc = b
+	}
+	if maxc > 245 {
+		scale := 245 / maxc
+		r *= scale
+		g *= scale
+		b *= scale
+	}
+
+	avg := (r + g + b) * 0.33333334
+	const saturation = 1.22
+	r = avg + (r-avg)*saturation
+	g = avg + (g-avg)*saturation
+	b = avg + (b-avg)*saturation
+
+	return r, g, b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
