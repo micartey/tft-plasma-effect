@@ -125,27 +125,27 @@ func (r *plasmaRenderer) generateField(t float32) {
 		{
 			x: 0.42 * sin(t*0.73+0.4),
 			y: 0.34 * sin(t*0.58+2.1),
-			r: 255, g: 92, b: 28, s: 6.7,
+			r: 255, g: 108, b: 24, s: 6.7,
 		},
 		{
 			x: 0.38 * sin(t*0.51+2.6),
 			y: 0.46 * sin(t*0.67+0.9),
-			r: 255, g: 32, b: 114, s: 7.2,
+			r: 255, g: 36, b: 156, s: 7.0,
 		},
 		{
 			x: 0.48 * sin(t*0.44+4.0),
 			y: 0.36 * sin(t*0.79+3.2),
-			r: 94, g: 70, b: 255, s: 6.4,
+			r: 86, g: 82, b: 255, s: 6.4,
 		},
 		{
 			x: 0.36 * sin(t*0.69+5.7),
 			y: 0.44 * sin(t*0.47+4.4),
-			r: 28, g: 198, b: 255, s: 7.8,
+			r: 24, g: 224, b: 255, s: 7.6,
 		},
 		{
 			x: 0.18 * sin(t*0.93+1.7),
 			y: 0.18 * sin(t*0.88+5.1),
-			r: 255, g: 218, b: 92, s: 11.5,
+			r: 255, g: 224, b: 48, s: 11.0,
 		},
 	}
 
@@ -266,7 +266,7 @@ func toneMapBloom(r, g, b float32) (float32, float32, float32) {
 	}
 
 	avg := (r + g + b) * 0.33333334
-	const saturation = 1.22
+	const saturation = 1.38
 	r = avg + (r-avg)*saturation
 	g = avg + (g-avg)*saturation
 	b = avg + (b-avg)*saturation
